@@ -1,5 +1,5 @@
 requests
-sqlite3
+sqlite
 pandas
 streamlit
 wordcloud
