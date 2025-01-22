@@ -1,6 +1,4 @@
 requests
-sqlite
 pandas
-streamlit
 wordcloud
 matplotlib
