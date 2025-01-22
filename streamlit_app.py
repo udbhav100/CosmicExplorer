@@ -2,9 +2,14 @@ import requests
 import sqlite3
 from datetime import datetime
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 import streamlit as st
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
 
 # NASA API Configuration
 API_KEY = "uEl6Trd7OCAqNbzdBWFedJXA8ScCsDHFnlDzc2Mx"
@@ -119,6 +124,46 @@ class NASAAPIClient:
         response = requests.get(MARS_ROVER_PHOTOS_API_URL, params=params)
         response.raise_for_status()
         return response.json().get("photos", [])
+    
+def load_space_data():
+    try:
+        df = pd.read_csv('Space_Corrected.csv')
+        df['Year'] = pd.to_datetime(df['Datum'], dayfirst=True, errors='coerce').dt.year
+        df = df.dropna(subset=['Year'])  # Drop rows where the date couldn't be parsed
+        df = df.groupby('Year').size().reset_index(name='MissionCount')
+        return df
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None
+
+
+
+def load_star_visibility_data():
+    try:
+        df = pd.read_csv('Star_Visibility_Dataset.csv')
+        return df
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None
+
+def build_star_visibility_model(df):
+    X = df[['Star_Magnitude', 'Viewing_Angle', 'Light_Pollution', 'Humidity']]
+    y = df['Star_Visibility']
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    predictions = model.predict(X_test)
+
+    # Calculate Adjusted R-squared
+    r_squared = model.score(X_test, y_test)
+    n = len(y_test)
+    p = X_test.shape[1]
+    adjusted_r_squared = 1 - (1 - r_squared) * (n - 1) / (n - p - 1)
+
+    return model, adjusted_r_squared
 
 def main():
     st.set_page_config(page_title="Cosmic Explorer")
@@ -131,7 +176,7 @@ def main():
     st.sidebar.header("Options")
     mode = st.sidebar.radio(
         "Select Mode",
-        options=["Search NASA Images", "Search by Date", "Gallery View", "Favorite APODs", "Mars Rover Photos", "Word Cloud"]
+        options=["Search NASA Images", "Search by Date", "Gallery View", "Favorite APODs", "Mars Rover Photos", "Word Cloud", "Predicted Star Visibility"]
     )
 
     if mode == "Search NASA Images":
@@ -278,6 +323,43 @@ def main():
                 WordCloudGenerator.display_word_cloud(wordcloud)
             else:
                 st.warning("No favorite APODs available to generate a word cloud.")
+
+    
+
+    elif mode == "Predicted Star Visibility":
+        st.title("Star Visibility Predictor")
+        
+        df = load_star_visibility_data()
+        if df is not None:
+            st.subheader("Dataset Preview")
+            st.dataframe(df.head())
+
+            model, adjusted_r_squared = build_star_visibility_model(df)
+
+            st.subheader("Model Performance")
+            st.write(f"Adjusted R-Squared: {adjusted_r_squared:.4f}")
+
+            st.subheader("Predict Star Visibility")
+            star_magnitude = st.slider("Star Magnitude", min_value=float(df['Star_Magnitude'].min()), max_value=float(df['Star_Magnitude'].max()), value=float(df['Star_Magnitude'].mean()))
+            viewing_angle = st.slider("Viewing Angle", min_value=float(df['Viewing_Angle'].min()), max_value=float(df['Viewing_Angle'].max()), value=float(df['Viewing_Angle'].mean()))
+            light_pollution = st.slider("Light Pollution", min_value=float(df['Light_Pollution'].min()), max_value=float(df['Light_Pollution'].max()), value=float(df['Light_Pollution'].mean()))
+            humidity = st.slider("Humidity", min_value=float(df['Humidity'].min()), max_value=float(df['Humidity'].max()), value=float(df['Humidity'].mean()))
+
+            input_data = pd.DataFrame({
+                "Star_Magnitude": [star_magnitude],
+                "Viewing_Angle": [viewing_angle],
+                "Light_Pollution": [light_pollution],
+                "Humidity": [humidity]
+            })
+
+            prediction = model.predict(input_data)[0]
+
+            # Ensure visibility is not negative
+            if prediction < 0:
+                prediction = 0
+
+            st.write(f"Predicted Star Visibility: {prediction:.2f}")
+
 
 if __name__ == "__main__":
     main()
